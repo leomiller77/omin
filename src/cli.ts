@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { select, input, number } from '@inquirer/prompts';
+import { select, number } from '@inquirer/prompts';
 import chalk from 'chalk';
 import path from 'path';
 import { log, spinner, printBanner, printBox } from './utils/logger.js';
@@ -35,11 +35,6 @@ program
       ],
     });
 
-    const testCommand = await input({
-      message: '自动化测试命令（默认：npm test）：',
-      default: 'npm test',
-    });
-
     const maxRetries = await number({
       message: '闭环最大重试次数（默认：5）：',
       default: 5,
@@ -71,7 +66,7 @@ program
       console.log(chalk.gray('  · 跳过（已存在）' + f));
     }
 
-    writeConfig({ host, maxRetries: maxRetries ?? 5, testCommand: testCommand || 'npm test', specsDir: '.omin/specs', taskFile: '.omin/task.md', stateFile: '.omin/state.json' }, projectRoot);
+    writeConfig({ host, maxRetries: maxRetries ?? 5, specsDir: '.omin/specs', taskFile: '.omin/task.md', stateFile: '.omin/state.json' }, projectRoot);
     log.success('omin.config.json 已生成');
     console.log();
 
