@@ -3,6 +3,7 @@ import { select, number } from '@inquirer/prompts';
 import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { log, spinner, printBanner, printBox } from './utils/logger.js';
 import { readConfig, writeConfig, requireConfig } from './utils/config.js';
@@ -68,13 +69,8 @@ program
     if (injectionResult.skipped.length > 0 && injectionResult.written.length === 0) {
       hostSpinner.warn(chalk.yellow('Skill 已存在，跳过写入 → ' + log.path(configFilePath)));
     } else {
-      const displayPath = host === 'codex-cli'
-        ? configFilePath
-        : path.relative(projectRoot, configFilePath);
-      hostSpinner.succeed(chalk.green('Skill 已安装 → ') + log.path(displayPath));
-      if (host === 'codex-cli') {
-        log.info('  ⚠  请完全退出并重启 Codex CLI 后，/omin 才会出现在命令列表中。');
-      }
+      const rel = path.relative(projectRoot, configFilePath);
+      hostSpinner.succeed(chalk.green('Skill 已安装 → ') + log.path(rel));
     }
 
     const scaffoldSpinner = spinner('正在生成工作区目录...');
@@ -224,15 +220,13 @@ function runUninstall(removeAll: boolean): void {
 
   if (!config) {
     log.error('未检测到 omin.config.json，工作区尚未初始化。');
-    log.info('如需手动清理：Claude Code → 删除 .claude/skills/omin/，Codex CLI → 删除 ~/.agents/skills/omin/');
+    log.info('如需手动清理：Claude Code → 删除 .claude/skills/omin/，Codex CLI → 删除 .agents/skills/omin/');
     process.exit(1);
   }
 
   const hostLabel = getHostLabel(config.host);
   const skillDir = getHostSkillDir(projectRoot, config.host);
-  const displayDir = config.host === 'codex-cli'
-    ? skillDir
-    : path.relative(projectRoot, skillDir);
+  const displayDir = path.relative(projectRoot, skillDir);
 
   printBanner(`omin uninstall — ${hostLabel}`);
 
@@ -248,6 +242,20 @@ function runUninstall(removeAll: boolean): void {
     }
   } else {
     log.warn(`Skill 目录不存在，跳过 → ${chalk.dim(displayDir)}`);
+  }
+
+  // Also clean the global install if Codex CLI host
+  if (config.host === 'codex-cli') {
+    const globalSkillDir = path.join(os.homedir(), '.agents', 'skills', 'omin');
+    if (fileExists(globalSkillDir)) {
+      try {
+        fs.rmSync(globalSkillDir, { recursive: true, force: true });
+        log.success(`已移除全局 Skill → ${chalk.dim(globalSkillDir)}`);
+        anyRemoved = true;
+      } catch {
+        // non-fatal
+      }
+    }
   }
 
   if (removeAll) {
