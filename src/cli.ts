@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import { log, spinner, printBanner, printBox } from './utils/logger.js';
 import { readConfig, writeConfig, requireConfig } from './utils/config.js';
 import { fileExists, resolveProjectRoot } from './utils/fs-helpers.js';
-import { injectHost, getHostLabel, getHostConfigPath } from './modules/init/host-injector.js';
+import { injectHost, getHostLabel, getHostConfigPath, getHostSkillDir } from './modules/init/host-injector.js';
 import { scaffoldWorkspace } from './modules/init/scaffolder.js';
 import { renderStatus } from './modules/status/reporter.js';
 import { readTask, isTaskEmpty, clearTask } from './modules/context/task-writer.js';
@@ -66,10 +66,15 @@ program
     const configFilePath = getHostConfigPath(projectRoot, host);
 
     if (injectionResult.skipped.length > 0 && injectionResult.written.length === 0) {
-      hostSpinner.warn(chalk.yellow('宿主配置已存在，跳过写入 → ' + log.path(configFilePath)));
+      hostSpinner.warn(chalk.yellow('Skill 已存在，跳过写入 → ' + log.path(configFilePath)));
     } else {
-      const rel = path.relative(projectRoot, configFilePath);
-      hostSpinner.succeed(chalk.green('宿主配置已写入 → ') + log.path(rel));
+      const displayPath = host === 'codex-cli'
+        ? configFilePath
+        : path.relative(projectRoot, configFilePath);
+      hostSpinner.succeed(chalk.green('Skill 已安装 → ') + log.path(displayPath));
+      if (host === 'codex-cli') {
+        log.info('  ⚠  请完全退出并重启 Codex CLI 后，/omin 才会出现在命令列表中。');
+      }
     }
 
     const scaffoldSpinner = spinner('正在生成工作区目录...');
@@ -219,13 +224,15 @@ function runUninstall(removeAll: boolean): void {
 
   if (!config) {
     log.error('未检测到 omin.config.json，工作区尚未初始化。');
-    log.info('如需手动清理，请直接删除 .claude/skills/omin/ 或 .codex/skills/omin/ 目录。');
+    log.info('如需手动清理：Claude Code → 删除 .claude/skills/omin/，Codex CLI → 删除 ~/.agents/skills/omin/');
     process.exit(1);
   }
 
   const hostLabel = getHostLabel(config.host);
-  const skillPath = getHostConfigPath(projectRoot, config.host);
-  const skillDir = path.dirname(skillPath);
+  const skillDir = getHostSkillDir(projectRoot, config.host);
+  const displayDir = config.host === 'codex-cli'
+    ? skillDir
+    : path.relative(projectRoot, skillDir);
 
   printBanner(`omin uninstall — ${hostLabel}`);
 
@@ -234,13 +241,13 @@ function runUninstall(removeAll: boolean): void {
   if (fileExists(skillDir)) {
     try {
       fs.rmSync(skillDir, { recursive: true, force: true });
-      log.success(`已移除 Skill 目录 → ${chalk.dim(path.relative(projectRoot, skillDir))}`);
+      log.success(`已移除 Skill 目录 → ${chalk.dim(displayDir)}`);
       anyRemoved = true;
     } catch (e) {
       log.error(`移除 Skill 目录失败：${String(e)}`);
     }
   } else {
-    log.warn(`Skill 目录不存在，跳过 → ${chalk.dim(path.relative(projectRoot, skillDir))}`);
+    log.warn(`Skill 目录不存在，跳过 → ${chalk.dim(displayDir)}`);
   }
 
   if (removeAll) {
