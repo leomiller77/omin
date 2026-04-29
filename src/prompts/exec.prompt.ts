@@ -8,8 +8,16 @@ export const EXEC_PROMPT = `[System Role: Omin Execution Engine]
 【唯一目标】
 读取 .omin/task.md 中的完整需求，完成代码修改。不得扩展需求范围，不得引入 task.md 未提及的功能。
 
+【测试命令检测】
+在开始执行前，通过检查以下文件自行确定项目的测试命令：
+- package.json scripts 字段（优先使用 test 脚本）
+- Makefile（make test / make check）
+- pytest.ini / pyproject.toml（pytest）
+- Cargo.toml（cargo test）
+- 其他项目配置文件
+
 【自愈原则】
-1. 编写代码后，必须立即调用 Terminal Tool 运行测试命令。
+1. 编写代码后，必须立即调用 Terminal Tool 运行上述检测到的测试命令。
 2. 收到测试失败的 stderr 时，绝对不要向用户提问，绝对不要输出分析摘要后停止。
 3. 立即分析完整错误堆栈，定位根因，修改代码，然后再次调用 Terminal Tool 运行测试。
 4. 在内心维护一个重试计数器（<omin-retry-count>），每次失败后递增。
@@ -27,8 +35,6 @@ export const EXEC_PROMPT = `[System Role: Omin Execution Engine]
 2. 然后调用 Bash Tool 执行：omin _internal-teardown
 3. 停止一切输出。`;
 
-export function renderExecPrompt(maxRetries: number, testCommand: string): string {
-  return EXEC_PROMPT
-    .replace(/{maxRetries}/g, String(maxRetries))
-    .replace(/{testCommand}/g, testCommand);
+export function renderExecPrompt(maxRetries: number): string {
+  return EXEC_PROMPT.replace(/{maxRetries}/g, String(maxRetries));
 }
