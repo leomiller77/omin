@@ -3,14 +3,16 @@
 ## 注册信息
 - **命名空间**：`/omin`
 - **版本**：1.0.0
-- **描述**：AI 工作流脚手架，提供规范驱动的自治闭环编码能力
+- **描述**：AI 工作流脚手架，提供规范驱动的自治闭环编码能力（含多 Agent 任务调度）
 
 ## 指令注册
 
-### `/omin:spec <文档路径或需求>`
-**职责**：防腐层生成。读取需求文档，仅向 .omin/specs/ 输出架构规范文件。
+---
 
-执行时，注入以下系统角色并替换 {input} 为用户参数：
+### `/omin spec <文档路径或需求>`
+**职责**：防腐层生成。读取需求文档，仅向 `.omin/specs/` 输出架构规范文件。
+
+执行时，注入以下系统角色并替换 `{input}` 为用户参数：
 
 ```
 [System Role: Omin Architect]
@@ -31,14 +33,56 @@
 ---
 
 ### `/omin <需求描述>`
-**职责**：任务点火与持续闭环。
+**职责**：任务分析 → 多 Agent 调度 → 持续闭环。
 
-步骤：
-1. 读取 .omin/task.md，若不为空则拒绝执行并提示用户先运行 /omin:clear
-2. 将 {input} 写入 .omin/task.md（通过 Bash Tool 执行）
-3. 读取 .omin/specs/ 下所有 .md 文件内容
-4. 通过检查 package.json / Makefile / pytest.ini / Cargo.toml 等文件自行确定测试命令
-5. 注入以下系统角色（{maxRetries} 替换为 omin.config.json 中的值）：
+#### 阶段一：任务拆解（Dispatch）
+
+1. 读取 `.omin/task.md`，若不为空则拒绝执行并提示用户先运行 `/omin clear`
+2. 将 `{input}` 写入 `.omin/task.md`（通过 Bash Tool 执行）
+3. 读取 `.omin/specs/` 下所有 `.md` 文件内容，作为硬约束
+4. 读取 `omin.config.json` 获取 `maxRetries`
+5. **任务复杂度评估**：
+   - 若任务包含多个独立模块（如 API + 前端 + 数据库迁移），且 Claude Code 当前支持多任务并行（Task Tool 可用），则进入**多 Agent 调度模式**
+   - 若任务是单一聚焦的改动，则直接进入**单 Agent 闭环模式**
+
+#### 阶段二A：多 Agent 调度模式
+
+将任务拆分为 2–5 个独立子任务，每个子任务：
+- 必须有明确的文件边界（不能与其他子任务修改同一文件）
+- 必须继承 `.omin/specs/` 的全部约束
+
+使用 **Task Tool** 并行派发每个子任务，子任务 prompt 格式：
+
+```
+[Sub-Agent Task #{n}]
+你是负责 {module_name} 模块的执行 Agent。
+
+继承约束（来自 .omin/specs/）：
+{spec_content}
+
+你的子任务：
+{sub_task_description}
+
+文件边界：仅允许修改以下文件/目录：
+{allowed_files}
+
+执行规则：
+- 通过检查 package.json / Makefile / pytest.ini / Cargo.toml 自行确定测试命令
+- 完成代码修改后必须运行测试，确保 Exit Code 0
+- 测试失败时自愈重试，最多 {maxRetries} 次
+- 成功后输出：[OMIN_SUB_SUCCESS #{n}]
+```
+
+等待所有子 Agent 完成（收到全部 `[OMIN_SUB_SUCCESS #n]` 信号后）。
+
+若任何子 Agent 达到重试上限仍失败，立即汇报：
+- 哪个子任务失败
+- 最后一次错误的完整 stderr
+- 推测的根因及需要人工介入的内容
+
+#### 阶段二B：单 Agent 闭环模式
+
+注入以下系统角色（`{maxRetries}` 替换为配置值）：
 
 ```
 [System Role: Omin Execution Engine]
@@ -58,20 +102,27 @@
   3. 停止所有输出
 ```
 
+#### 阶段三：统一收尾（多 Agent 模式专用）
+
+所有子 Agent 成功后：
+1. 运行完整集成测试（如有）
+2. 若集成测试通过，调用 Bash Tool：`omin _internal-teardown`
+3. 输出 `[OMIN_SUCCESS]` 并停止所有输出
+
 ---
 
-### `/omin:clear`
+### `/omin clear`
 **职责**：物理中断。
 
 步骤：
-1. 检查 .omin/task.md 是否不为空
+1. 检查 `.omin/task.md` 是否不为空
 2. 若不为空，向用户确认是否强制中断
 3. 确认后执行 Bash Tool：`omin _internal-teardown --mode=interrupt`
 4. 输出中断确认信息
 
 ---
 
-### `/omin:status`
+### `/omin status`
 **职责**：状态遥测。
 
 执行 Bash Tool：`omin _internal-status`
