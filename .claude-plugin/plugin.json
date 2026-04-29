@@ -1,0 +1,22 @@
+{
+  "name": "omin",
+  "version": "1.0.0",
+  "description": "AI workflow harness — spec-driven autonomous coding loop with multi-agent dispatch and self-healing test iteration.",
+  "author": {
+    "name": "Leo Miller",
+    "url": "https://github.com/leomiller77"
+  },
+  "homepage": "https://github.com/leomiller77/aegis",
+  "repository": "https://github.com/leomiller77/aegis",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "agents",
+    "spec-driven",
+    "tdd",
+    "autonomous",
+    "self-healing",
+    "multi-agent"
+  ],
+  "skills": ["./skills/"]
+}
