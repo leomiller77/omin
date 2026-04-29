@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { select, number } from '@inquirer/prompts';
 import chalk from 'chalk';
 import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { log, spinner, printBanner, printBox } from './utils/logger.js';
 import { readConfig, writeConfig, requireConfig } from './utils/config.js';
 import { fileExists, resolveProjectRoot } from './utils/fs-helpers.js';
@@ -12,12 +14,27 @@ import { readTask, isTaskEmpty, clearTask } from './modules/context/task-writer.
 import { appendMilestone, appendStash, readState } from './modules/archiver/state-writer.js';
 import { generateMilestone } from './modules/archiver/summarizer.js';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function getPackageVersion(): string {
+  try {
+    const pkgPath = path.join(__dirname, '..', 'package.json');
+    const raw = fs.readFileSync(pkgPath, 'utf8');
+    const pkg = JSON.parse(raw) as { version: string };
+    return pkg.version ?? '1.0.0';
+  } catch {
+    return '1.0.0';
+  }
+}
+
+const VERSION = getPackageVersion();
+
 const program = new Command();
 
 program
   .name('omin')
   .description('AI workflow harness for Codex CLI and Claude Code')
-  .version('1.0.0');
+  .version(VERSION, '-v, -V, --version', '查看版本号');
 
 program
   .command('init')
@@ -71,10 +88,8 @@ program
     console.log();
 
     const hostLabel = getHostLabel(host);
-    const nextStep1 = host === 'claude-code'
-      ? '  /omin:spec <需求文档路径>  设置规范'
-      : '  /omin:spec <需求文档路径>  设置规范';
-    const nextStep2 = '  /omin <需求描述>           启动闭环';
+    const nextStep1 = '  /omin spec <需求文档路径>  设置规范';
+    const nextStep2 = '  /omin <需求描述>            启动闭环';
 
     printBox([
       '✅ Omin 初始化完成',
@@ -83,6 +98,21 @@ program
       nextStep1,
       nextStep2,
     ]);
+  });
+
+program
+  .command('version')
+  .description('显示 Omin 版本号')
+  .action(() => {
+    console.log(`@leomiller/omin v${VERSION}`);
+  });
+
+program
+  .command('help-info')
+  .alias('info')
+  .description('显示集成状态与可用指令列表')
+  .action(() => {
+    runHelp();
   });
 
 program
@@ -107,6 +137,72 @@ program
     await runInternalTeardown(options.mode === 'interrupt');
   });
 
+function runHelp(): void {
+  const projectRoot = resolveProjectRoot();
+  const config = readConfig(projectRoot);
+
+  const W = 63;
+  const INNER = W - 4;
+
+  const line = (text: string) => {
+    const visible = stripAnsi(text);
+    const pad = Math.max(0, INNER - visible.length);
+    return chalk.bold('│') + '  ' + text + ' '.repeat(pad) + '  ' + chalk.bold('│');
+  };
+  const blank = () => line('');
+  const sep = () => chalk.bold('├' + '─'.repeat(W - 2) + '┤');
+  const top = chalk.bold('┌' + '─'.repeat(Math.floor((W - 12) / 2)) + ' Omin Help ' + '─'.repeat(Math.ceil((W - 12) / 2)) + '┐');
+  const bot = chalk.bold('└' + '─'.repeat(W - 2) + '┘');
+
+  const rows: string[] = [top];
+
+  rows.push(line(chalk.bold.cyan(`@leomiller/omin`) + chalk.gray(` v${VERSION}`) + '  ' + chalk.dim('AI Workflow Harness')));
+  rows.push(blank());
+
+  if (config) {
+    const hostLabel = config.host === 'claude-code' ? 'Claude Code' : 'Codex CLI';
+    const skillPath = getHostConfigPath(projectRoot, config.host);
+    const skillExists = fileExists(skillPath);
+    const skillRel = path.relative(projectRoot, skillPath);
+    const skillStatus = skillExists ? chalk.green('✔ ' + skillRel) : chalk.red('✖ 未找到（请重新执行 omin init）');
+
+    rows.push(sep());
+    rows.push(line(chalk.bold('集成状态')));
+    rows.push(line(`  宿主引擎：${chalk.cyan(hostLabel)}`));
+    rows.push(line(`  Skill 文件：${skillStatus}`));
+    rows.push(line(`  最大重试：${chalk.yellow(String(config.maxRetries))} 次`));
+    rows.push(blank());
+
+    const prefix = config.host === 'claude-code' ? '/omin' : '/omin';
+    rows.push(sep());
+    rows.push(line(chalk.bold(`AI 指令（在 ${hostLabel} 中输入）`)));
+    rows.push(line(`  ${chalk.cyan(prefix + ' spec <文档路径>')}    — 生成架构规范文件`));
+    rows.push(line(`  ${chalk.cyan(prefix + ' <自然语言需求>')}     — 启动自愈闭环执行`));
+    rows.push(line(`  ${chalk.cyan(prefix + ' clear')}              — 中断当前活跃任务`));
+    rows.push(line(`  ${chalk.cyan(prefix + ' status')}             — 查看状态快照`));
+  } else {
+    rows.push(sep());
+    rows.push(line(chalk.yellow('⚠  工作区尚未初始化')));
+    rows.push(line('   请先执行：' + chalk.cyan('omin init')));
+  }
+
+  rows.push(blank());
+  rows.push(sep());
+  rows.push(line(chalk.bold('CLI 指令')));
+  rows.push(line(`  ${chalk.cyan('omin init')}              — 初始化工作区 & 注入宿主 Skill`));
+  rows.push(line(`  ${chalk.cyan('omin status')}            — 当前任务 & 规范状态快照`));
+  rows.push(line(`  ${chalk.cyan('omin help')}              — 显示此帮助`));
+  rows.push(line(`  ${chalk.cyan('omin -v')}                — 查看版本号`));
+  rows.push(blank());
+  rows.push(bot);
+
+  console.log(rows.join('\n'));
+}
+
+function stripAnsi(s: string): string {
+  return s.replace(/\x1B\[[0-9;]*m/g, '');
+}
+
 function runInternalStatus(): void {
   const projectRoot = resolveProjectRoot();
   const ominDir = path.join(projectRoot, '.omin');
@@ -130,7 +226,7 @@ function runInternalStatus(): void {
 
   const specsDir = path.join(projectRoot, config.specsDir);
   if (!fileExists(specsDir)) {
-    log.warn('尚未生成任何规范文件。建议先执行 /omin:spec 定义架构约束。');
+    log.warn('尚未生成任何规范文件。建议先执行 /omin spec 定义架构约束。');
   }
 
   const output = renderStatus(config, projectRoot);
@@ -209,6 +305,13 @@ async function runInternalTeardown(interruptMode: boolean): Promise<void> {
     console.log(chalk.gray('  ' + '─'.repeat(41)));
   }
 }
+
+program
+  .command('help', { hidden: true })
+  .description('显示集成状态与可用指令（同 omin info）')
+  .action(() => {
+    runHelp();
+  });
 
 program.parseAsync(process.argv).catch((err) => {
   log.error(String(err));
