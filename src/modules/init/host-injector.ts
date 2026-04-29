@@ -1,17 +1,20 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { atomicWrite, fileExists, ensureDir } from '../../utils/fs-helpers.js';
 import { log } from '../../utils/logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = path.join(__dirname, '../../../src/templates');
+
+const SKILL_SRC = path.join(__dirname, '../../../skills/omin/SKILL.md');
 
 export type HostType = 'claude-code' | 'codex-cli';
 
 export interface InjectionResult {
   written: string[];
   skipped: string[];
+  installPath: string;
 }
 
 export function injectHost(
@@ -22,56 +25,51 @@ export function injectHost(
   if (host === 'claude-code') {
     return injectClaudeCode(projectRoot, force);
   } else {
-    return injectCodexCli(projectRoot, force);
+    return injectCodexCli(force);
   }
 }
 
 function injectClaudeCode(projectRoot: string, force: boolean): InjectionResult {
-  const result: InjectionResult = { written: [], skipped: [] };
   const skillDir = path.join(projectRoot, '.claude', 'skills', 'omin');
   const skillPath = path.join(skillDir, 'SKILL.md');
 
   ensureDir(skillDir);
 
   if (!force && fileExists(skillPath)) {
-    log.warn(`宿主配置已存在，跳过写入 → ${skillPath}`);
+    log.warn(`Skill 文件已存在，跳过写入 → ${skillPath}`);
     log.info('如需强制覆盖，请使用 omin init --force');
-    result.skipped.push(skillPath);
-    return result;
+    return { written: [], skipped: [skillPath], installPath: skillPath };
   }
 
-  const template = readTemplate('claude-skill.md.tpl');
-  atomicWrite(skillPath, template);
-  result.written.push(skillPath);
-  return result;
+  const content = readSkillContent();
+  atomicWrite(skillPath, content);
+  return { written: [skillPath], skipped: [], installPath: skillPath };
 }
 
-function injectCodexCli(projectRoot: string, force: boolean): InjectionResult {
-  const result: InjectionResult = { written: [], skipped: [] };
-  const skillDir = path.join(projectRoot, '.codex', 'skills', 'omin');
+function injectCodexCli(force: boolean): InjectionResult {
+  const skillDir = path.join(os.homedir(), '.agents', 'skills', 'omin');
   const skillPath = path.join(skillDir, 'SKILL.md');
 
   ensureDir(skillDir);
 
   if (!force && fileExists(skillPath)) {
-    log.warn(`宿主配置已存在，跳过写入 → ${skillPath}`);
+    log.warn(`Skill 文件已存在，跳过写入 → ${skillPath}`);
     log.info('如需强制覆盖，请使用 omin init --force');
-    result.skipped.push(skillPath);
-    return result;
+    return { written: [], skipped: [skillPath], installPath: skillPath };
   }
 
-  const template = readTemplate('codex-skill.md.tpl');
-  atomicWrite(skillPath, template);
-  result.written.push(skillPath);
-  return result;
+  const content = readSkillContent();
+  atomicWrite(skillPath, content);
+  return { written: [skillPath], skipped: [], installPath: skillPath };
 }
 
-function readTemplate(filename: string): string {
-  const templatePath = path.join(TEMPLATES_DIR, filename);
+function readSkillContent(): string {
   try {
-    return fs.readFileSync(templatePath, 'utf8');
+    return fs.readFileSync(SKILL_SRC, 'utf8');
   } catch {
-    throw new Error(`无法读取模板文件：${templatePath}`);
+    throw new Error(
+      `无法读取 Skill 源文件：${SKILL_SRC}\n请确认 @leomiller/omin 安装完整。`,
+    );
   }
 }
 
@@ -83,5 +81,12 @@ export function getHostConfigPath(projectRoot: string, host: HostType): string {
   if (host === 'claude-code') {
     return path.join(projectRoot, '.claude', 'skills', 'omin', 'SKILL.md');
   }
-  return path.join(projectRoot, '.codex', 'skills', 'omin', 'SKILL.md');
+  return path.join(os.homedir(), '.agents', 'skills', 'omin', 'SKILL.md');
+}
+
+export function getHostSkillDir(projectRoot: string, host: HostType): string {
+  if (host === 'claude-code') {
+    return path.join(projectRoot, '.claude', 'skills', 'omin');
+  }
+  return path.join(os.homedir(), '.agents', 'skills', 'omin');
 }
