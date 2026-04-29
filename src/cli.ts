@@ -116,6 +116,14 @@ program
   });
 
 program
+  .command('uninstall')
+  .description('从宿主 AI 引擎中移除 Omin Skill 文件')
+  .option('--all', '同时移除工作区（.omin/）和配置文件（omin.config.json）')
+  .action((options: { all: boolean }) => {
+    runUninstall(options.all);
+  });
+
+program
   .command('status')
   .description('显示 Omin 系统状态快照（同 _internal-status）')
   .action(() => {
@@ -190,6 +198,8 @@ function runHelp(): void {
   rows.push(sep());
   rows.push(line(chalk.bold('CLI 指令')));
   rows.push(line(`  ${chalk.cyan('omin init')}              — 初始化工作区 & 注入宿主 Skill`));
+  rows.push(line(`  ${chalk.cyan('omin uninstall')}         — 移除宿主中已注入的 Skill 文件`));
+  rows.push(line(`  ${chalk.cyan('omin uninstall --all')}   — 同时移除工作区 & 配置文件`));
   rows.push(line(`  ${chalk.cyan('omin status')}            — 当前任务 & 规范状态快照`));
   rows.push(line(`  ${chalk.cyan('omin help')}              — 显示此帮助`));
   rows.push(line(`  ${chalk.cyan('omin -v')}                — 查看版本号`));
@@ -201,6 +211,89 @@ function runHelp(): void {
 
 function stripAnsi(s: string): string {
   return s.replace(/\x1B\[[0-9;]*m/g, '');
+}
+
+function runUninstall(removeAll: boolean): void {
+  const projectRoot = resolveProjectRoot();
+  const config = readConfig(projectRoot);
+
+  if (!config) {
+    log.error('未检测到 omin.config.json，工作区尚未初始化。');
+    log.info('如需手动清理，请直接删除 .claude/skills/omin/ 或 .codex/skills/omin/ 目录。');
+    process.exit(1);
+  }
+
+  const hostLabel = getHostLabel(config.host);
+  const skillPath = getHostConfigPath(projectRoot, config.host);
+  const skillDir = path.dirname(skillPath);
+
+  printBanner(`omin uninstall — ${hostLabel}`);
+
+  let anyRemoved = false;
+
+  if (fileExists(skillDir)) {
+    try {
+      fs.rmSync(skillDir, { recursive: true, force: true });
+      log.success(`已移除 Skill 目录 → ${chalk.dim(path.relative(projectRoot, skillDir))}`);
+      anyRemoved = true;
+    } catch (e) {
+      log.error(`移除 Skill 目录失败：${String(e)}`);
+    }
+  } else {
+    log.warn(`Skill 目录不存在，跳过 → ${chalk.dim(path.relative(projectRoot, skillDir))}`);
+  }
+
+  if (removeAll) {
+    const ominDir = path.join(projectRoot, '.omin');
+    const configPath = path.join(projectRoot, 'omin.config.json');
+
+    if (fileExists(ominDir)) {
+      try {
+        fs.rmSync(ominDir, { recursive: true, force: true });
+        log.success(`已移除工作区 → ${chalk.dim('.omin/')}`);
+        anyRemoved = true;
+      } catch (e) {
+        log.error(`移除工作区失败：${String(e)}`);
+      }
+    } else {
+      log.warn('工作区目录 .omin/ 不存在，跳过。');
+    }
+
+    if (fileExists(configPath)) {
+      try {
+        fs.unlinkSync(configPath);
+        log.success(`已移除配置文件 → ${chalk.dim('omin.config.json')}`);
+        anyRemoved = true;
+      } catch (e) {
+        log.error(`移除配置文件失败：${String(e)}`);
+      }
+    } else {
+      log.warn('配置文件 omin.config.json 不存在，跳过。');
+    }
+  }
+
+  console.log();
+
+  if (anyRemoved) {
+    if (removeAll) {
+      printBox([
+        '✅ Omin 已完全卸载',
+        '',
+        '  Skill 文件、工作区、配置文件均已移除。',
+        '  如需重新安装，执行：omin init',
+      ]);
+    } else {
+      printBox([
+        `✅ Omin Skill 已从 ${hostLabel} 中移除`,
+        '',
+        '  工作区（.omin/）与配置文件保留。',
+        '  如需同时移除，执行：omin uninstall --all',
+        '  如需重新注入 Skill，执行：omin init',
+      ]);
+    }
+  } else {
+    log.info('未发现任何需要移除的内容。');
+  }
 }
 
 function runInternalStatus(): void {
