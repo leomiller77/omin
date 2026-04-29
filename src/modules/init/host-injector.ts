@@ -15,6 +15,7 @@ export interface InjectionResult {
   written: string[];
   skipped: string[];
   installPath: string;
+  isGlobal: boolean;
 }
 
 export function injectHost(
@@ -25,11 +26,12 @@ export function injectHost(
   if (host === 'claude-code') {
     return injectClaudeCode(projectRoot, force);
   } else {
-    return injectCodexCli(force);
+    return injectCodexCli(projectRoot, force);
   }
 }
 
 function injectClaudeCode(projectRoot: string, force: boolean): InjectionResult {
+  // Claude Code discovers project-local skills at .claude/skills/<name>/SKILL.md
   const skillDir = path.join(projectRoot, '.claude', 'skills', 'omin');
   const skillPath = path.join(skillDir, 'SKILL.md');
 
@@ -38,16 +40,19 @@ function injectClaudeCode(projectRoot: string, force: boolean): InjectionResult 
   if (!force && fileExists(skillPath)) {
     log.warn(`Skill 文件已存在，跳过写入 → ${skillPath}`);
     log.info('如需强制覆盖，请使用 omin init --force');
-    return { written: [], skipped: [skillPath], installPath: skillPath };
+    return { written: [], skipped: [skillPath], installPath: skillPath, isGlobal: false };
   }
 
   const content = readSkillContent();
   atomicWrite(skillPath, content);
-  return { written: [skillPath], skipped: [], installPath: skillPath };
+  return { written: [skillPath], skipped: [], installPath: skillPath, isGlobal: false };
 }
 
-function injectCodexCli(force: boolean): InjectionResult {
-  const skillDir = path.join(os.homedir(), '.agents', 'skills', 'omin');
+function injectCodexCli(projectRoot: string, force: boolean): InjectionResult {
+  // Codex CLI discovers project-local skills at <project>/.agents/skills/<name>/SKILL.md
+  // via repo_agents_skill_roots() — this works WITHOUT any user config layers.
+  // Reference: codex-rs/core-skills/src/loader.rs :: repo_agents_skill_roots()
+  const skillDir = path.join(projectRoot, '.agents', 'skills', 'omin');
   const skillPath = path.join(skillDir, 'SKILL.md');
 
   ensureDir(skillDir);
@@ -55,12 +60,31 @@ function injectCodexCli(force: boolean): InjectionResult {
   if (!force && fileExists(skillPath)) {
     log.warn(`Skill 文件已存在，跳过写入 → ${skillPath}`);
     log.info('如需强制覆盖，请使用 omin init --force');
-    return { written: [], skipped: [skillPath], installPath: skillPath };
+    return { written: [], skipped: [skillPath], installPath: skillPath, isGlobal: false };
   }
 
   const content = readSkillContent();
   atomicWrite(skillPath, content);
-  return { written: [skillPath], skipped: [], installPath: skillPath };
+
+  // Also attempt global install to ~/.agents/skills/omin/ for user-scope discovery.
+  // This works when the user has a ~/.codex/config.toml (User config layer).
+  tryGlobalInstall(content, force);
+
+  return { written: [skillPath], skipped: [], installPath: skillPath, isGlobal: false };
+}
+
+function tryGlobalInstall(content: string, force: boolean): void {
+  try {
+    const globalSkillDir = path.join(os.homedir(), '.agents', 'skills', 'omin');
+    const globalSkillPath = path.join(globalSkillDir, 'SKILL.md');
+    if (force || !fileExists(globalSkillPath)) {
+      ensureDir(globalSkillDir);
+      atomicWrite(globalSkillPath, content);
+      log.info(`  全局 Skill 同步 → ${globalSkillPath}`);
+    }
+  } catch {
+    // Non-fatal: project-local install is sufficient.
+  }
 }
 
 function readSkillContent(): string {
@@ -81,12 +105,13 @@ export function getHostConfigPath(projectRoot: string, host: HostType): string {
   if (host === 'claude-code') {
     return path.join(projectRoot, '.claude', 'skills', 'omin', 'SKILL.md');
   }
-  return path.join(os.homedir(), '.agents', 'skills', 'omin', 'SKILL.md');
+  // Primary install: project-local .agents/skills/omin/SKILL.md
+  return path.join(projectRoot, '.agents', 'skills', 'omin', 'SKILL.md');
 }
 
 export function getHostSkillDir(projectRoot: string, host: HostType): string {
   if (host === 'claude-code') {
     return path.join(projectRoot, '.claude', 'skills', 'omin');
   }
-  return path.join(os.homedir(), '.agents', 'skills', 'omin');
+  return path.join(projectRoot, '.agents', 'skills', 'omin');
 }
